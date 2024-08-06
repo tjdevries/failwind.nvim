@@ -1,0 +1,80 @@
+/* TODO: import statements, layers, !important LUL */
+options {
+	number: true;
+	relativenumber: true;
+}
+
+/* Top-level keymaps container */
+keymaps {
+	normal, insert {
+		:key("[[[") {
+			action: lua('GLOBAL_VALUE = 42');
+			desc: 'Go to previous [D]iagnostic message';
+		}
+
+		:key("]]]") {
+			action: lua(
+				'GLOBAL_VALUE = GLOBAL_VALUE + 1'
+				'print("Global Value:", GLOBAL_VALUE)'
+			);
+			desc: 'Go to next [D]iagnostic message';
+		}
+	}
+}
+
+plugins {
+  :repo("echasnovski/mini.nvim") {
+    setup: "mini.trailspace" "mini.ai";
+  }
+
+	:repo("stevearc/oil.nvim") {
+		depends: "nvim-tree/nvim-web-devicons";
+
+		:setup("oil") {
+			columns: ["icon"];
+
+			@keymaps {
+				@- "<c-h>" false;
+				@- "<c-l>" false;
+				@- "<c-k>" false;
+				@- "<c-j>" false;
+				@- "<M-h>" "actions.select_split";
+			}
+
+      view_options {
+        show_hidden: true;
+      }
+    }
+
+    :setup_("oil") {
+      goofy_list {
+        @- "icon";
+        @- {
+          column: true
+        }
+        @- "another";
+      }
+
+      /* problem to solve is some keys are not valid identifiers */
+      keymaps {
+        /* Normal method here */
+        example: true;
+        another {
+          hello: true;
+        }
+
+        /* Only required for invalid identifiers */
+        @- "<c-h>" false;
+        @- false;
+      }
+
+      keymaps { k: "<c-h>"; v: false; }
+
+
+			/* @win_options { */
+			/* 	@winbar "%{v:lua.CustomOilBar()}"; */
+			/* } */
+		}
+	}
+}
+
