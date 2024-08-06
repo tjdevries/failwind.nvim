@@ -1,0 +1,178 @@
+/* TODO: import statements, layers, !important LUL */
+options {
+  number: true;
+  relativenumber: false;
+  showmode: false;
+  mouse: 'a';
+  clipboard: 'unnamedplus';
+  breakindent: true;
+  undofile: true;
+  ignorecase: true;
+  smartcase: true;
+  signcolumn: 'yes';
+  updatetime: 250;
+  splitright: true;
+  splitbelow: true;
+  list: true;
+  listchars: 'tab:» ,trail:·,nbsp:␣';
+  inccommand: 'split';
+  cursorline: true;
+  scrolloff: 10;
+  tabstop: 4;
+  shiftwidth: 4;
+
+  css {
+    expandtab: true;
+    shiftwidth: 2;
+    tabstop: 2;
+  }
+
+  lua {
+    tabstop: 2;
+  }
+}
+
+/* Top-level keymaps container */
+keymaps {
+  normal {
+    :key("<esc>") {
+      action: "<cmd>nohlsearch<cr>";
+    }
+
+    :key("<leader>q") {
+      action: lua("vim.diagnostic.setloclist()");
+    }
+
+  }
+
+  terminal {
+    :key("<esc><esc>") {
+      action: "<C-\><C-n>";
+      desc: "wow, escape terminal mode";
+    }
+  }
+}
+
+plugins {
+  /* TOD: repo: 'tpope/vim-sleuth'; */
+  :repo("tpope/vim-sleuth") {}
+
+  :repo("lewis6991/gitsigns.nvim") {
+    :setup("gitsigns") {
+      signs {
+        add { text: '+' }
+        change { text: '~' }
+        delete { text: '_' }
+        topdelete { text: '‾' }
+        changedelete { text: '~' }
+      },
+    },
+  }
+
+  :repo("folke/which-key.nvim") {
+    setup: 'which-key';
+  }
+
+  :repo("echasnovski/mini.nvim") {
+    setup: "mini.trailspace" "mini.ai";
+  }
+
+  :repo("folke/tokyonight.nvim") {
+    config: lua("vim.cmd.colorscheme('tokyonight')");
+  }
+
+  :repo("nvim-telescope/telescope.nvim") {
+    depends: "nvim-lua/plenary.nvim";
+    setup: 'telescope';
+
+    keymaps {
+      normal {
+        :key(' sh') { action: "<cmd>Telescope help_tags<CR>"; }
+        :key(' sk') { action: "<cmd>Telescope keymaps<CR>"; }
+        :key(' sf') { action: "<cmd>Telescope find_files<CR>"; }
+        :key(' ss') { action: "<cmd>Telescope builtin<CR>"; }
+        :key(' sw') { action: "<cmd>Telescope grep_string<CR>"; }
+        :key(' sg') { action: "<cmd>Telescope live_grep<CR>"; }
+        :key(' sd') { action: "<cmd>Telescope diagnostics<CR>"; }
+        :key(' sr') { action: "<cmd>Telescope resume<CR>"; }
+        :key(' s.') { action: "<cmd>Telescope oldfiles<CR>"; }
+        :key('  ')  { action: "<cmd>Telescope buffers<CR>"; }
+
+        /* :key(' /') {
+          desc: "Fuzzily search in current buffer";
+          @call require('telescope.builtin').current_buffer_fuzzy_find {
+            grep_open_files: true;
+            prompt_title: "Live Grep in Open Files";
+          }
+        } */
+
+        :key('s/') {
+          desc: "Search in Open Files";
+          @call require('telescope.builtin').live_grep {
+            grep_open_files: true;
+            prompt_title: "Live Grep in Open Files";
+          }
+        }
+
+        :key(' sn') {
+          desc: "Search Neovim Files";
+          @call require('telescope.builtin').find_files {
+            prompt_title: "Search Neovim DotFiles";
+            cwd: vim-fn-stdpath("config");
+          }
+        }
+      }
+    }
+  }
+
+  :repo("stevearc/oil.nvim") {
+    depends: "nvim-tree/nvim-web-devicons";
+
+    :setup("oil") {
+      columns: ["icon"];
+
+      keymaps {
+        @- "<c-h>" false;
+        @- "<c-l>" false;
+        @- "<c-k>" false;
+        @- "<c-j>" false;
+        @- "<M-h>" "actions.select_split";
+      }
+
+      view_options {
+        show_hidden: true;
+      }
+    }
+
+    :setup_("oil") {
+      goofy_list {
+        @- "icon";
+        @- {
+          column: true
+        }
+        @- "another";
+      }
+
+      /* problem to solve is some keys are not valid identifiers */
+      keymaps {
+        /* Normal method here */
+        example: true;
+        another {
+          hello: true;
+        }
+
+        /* Only required for invalid identifiers */
+        @- "<c-h>" false;
+        @- false;
+      }
+
+      keymaps { k: "<c-h>"; v: false; }
+
+
+      /* @win_options { */
+      /*  @winbar "%{v:lua.CustomOilBar()}"; */
+    /* } */
+    }
+  }
+}
+

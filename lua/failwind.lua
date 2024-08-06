@@ -13,6 +13,8 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 
 --]]
 
+local eval_block_as_table
+
 local M = {}
 
 local options_query = vim.treesitter.query.parse(
@@ -126,14 +128,29 @@ evaluate_css_value = function(parser, source, node)
   elseif ty == "property_name" then
     return text
   elseif ty == "call_expression" then
-    local value_idx = get_capture_idx(eval_lua_query.captures, "value")
-    local values = {}
-    for _, call, _ in eval_lua_query:iter_matches(node, source, 0, -1, { all = true }) do
-      table.insert(values, evaluate_css_value(parser, source, call[value_idx][1]))
-    end
+    local function_node = assert(node:child(0), "all call_expression have function_node")
+    local function_name = vim.treesitter.get_node_text(function_node, source)
+    if function_name == "lua" then
+      local value_idx = get_capture_idx(eval_lua_query.captures, "value")
+      local values = {}
+      for _, call, _ in eval_lua_query:iter_matches(node, source, 0, -1, { all = true }) do
+        table.insert(values, evaluate_css_value(parser, source, call[value_idx][1]))
+      end
 
-    local code = table.concat(values, "\n")
-    return loadstring(code)
+      local code = table.concat(values, "\n")
+      return loadstring(code)
+    else
+      function_name = function_name:gsub("-", ".")
+      local function_ref = loadstring("return " .. function_name)()
+
+      local arguments = {}
+      local arguments_node = assert(node:child(1), "all call_expression have arguments")
+      for _, arg in ipairs(arguments_node:named_children()) do
+        table.insert(arguments, evaluate_css_value(parser, source, arg))
+      end
+
+      return function_ref(unpack(arguments))
+    end
   elseif ty == "grid_value" then
     local values = {}
     for _, child in ipairs(node:named_children()) do
@@ -144,6 +161,30 @@ evaluate_css_value = function(parser, source, node)
   elseif ty == "selectors" then
     -- TODO: This seems questionable?
     return vim.treesitter.get_node_text(node, source)
+  elseif ty == "postcss_statement" then
+    local child = assert(node:named_child(0), "must have a child")
+    local keyword = vim.treesitter.get_node_text(child, source)
+    error(string.format("unknown postcss_statement: %s", keyword))
+
+    -- if keyword == "@call" then
+    --   local node_text = vim.treesitter.get_node_text(node, source)
+    --   local parts = vim.split(node_text, " ")
+    --   table.remove(parts, 1)
+    --   node_text = table.concat(parts, " ")
+    --   print("Calling:", node_text)
+    --   local brace = string.find(node_text, "{", 0, true)
+    --   node_text = string.sub(node_text, 1, brace + 1)
+    --   print("Calling:", node_text)
+    --
+    --   local function_node = assert(node:named_child(1), "must have a function_name")
+    --   local function_text = string.format("pcall(%s)", vim.treesitter.get_node_text(function_node, source))
+    --   local function_ref = assert(loadstring(function_text, "must load function"))
+    --   return function()
+    --     print("Calling:", function_text, function_node, node:named_child_count(), function_node:range())
+    --     return function_ref()
+    --   end
+    -- else
+    -- end
   else
     error(string.format("Unknown css_value %s / %s", ty, source))
   end
@@ -184,7 +225,6 @@ end
 ---@field depends string[]
 ---@field config function[]
 
-local eval_block_as_table
 eval_block_as_table = function(parser, text, module_config_node)
   local result = {}
 
@@ -288,7 +328,7 @@ M.test = function()
   M.evaluate "/home/tjdevries/plugins/css.nvim/examples/init.css"
 end
 
-local evaluate_keymaps = function(parser, text, root_node)
+local evaluate_keymaps = function(parser, source, root_node)
   local mode_idx = get_capture_idx(keymaps_query.captures, "mode")
   local key_idx = get_capture_idx(keymaps_query.captures, "key")
   local keymap_idx = get_capture_idx(keymaps_query.captures, "keymap")
@@ -297,27 +337,50 @@ local evaluate_keymaps = function(parser, text, root_node)
   local value_idx = get_capture_idx(keymaps_value_query.captures, "value")
 
   local keymaps = {}
-  for _, match, _ in keymaps_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
-    local mode = vim.treesitter.get_node_text(match[mode_idx][1], text)
-    local key = evaluate_css_value(parser, text, match[key_idx][1])
+  for _, match, _ in keymaps_query:iter_matches(root_node:root(), source, 0, -1, { all = true }) do
+    local mode = vim.treesitter.get_node_text(match[mode_idx][1], source)
+    local key = evaluate_css_value(parser, source, match[key_idx][1])
     local keymap = match[keymap_idx][1]
 
     local action = nil
     local opts = {}
-    for _, declaration, _ in keymaps_value_query:iter_matches(keymap, text, 0, -1, { all = true }) do
-      local name = evaluate_css_value(parser, text, declaration[name_idx][1])
+    for _, declaration, _ in keymaps_value_query:iter_matches(keymap, source, 0, -1, { all = true }) do
+      local name = evaluate_css_value(parser, source, declaration[name_idx][1])
       local value = declaration[value_idx][1]
 
       if name == "action" then
-        action = evaluate_css_value(parser, text, value)
+        action = evaluate_css_value(parser, source, value)
       elseif name == "desc" then
-        opts.desc = evaluate_css_value(parser, text, value)
+        opts.desc = evaluate_css_value(parser, source, value)
       end
     end
 
     for _, child in ipairs(keymap:named_children()) do
       if child:type() == "postcss_statement" then
-        print("CHILD TYPE:", child)
+        local keyword = vim.treesitter.get_node_text(assert(child:named_child(0)), source)
+        if keyword == "@call" then
+          local call_node = assert(child:named_child(1), "must have call")
+          local ruleset_node = assert(child:next_sibling(), "must have ruleset")
+          local node_text = vim.treesitter.get_node_text(call_node, source)
+            .. vim.treesitter.get_node_text(ruleset_node, source)
+          local brace = string.find(node_text, "{", 0, true)
+          node_text = vim.trim(string.sub(node_text, 1, brace - 1))
+
+          -- local function_node = assert(node:named_child(1), "must have a function_name")
+          local function_text = string.format("return function(...) return %s(...) end", node_text)
+          local function_ref = assert(loadstring(function_text, "must load function"))()
+
+          action = function()
+            local arguments
+            for _, rule_child in ipairs(ruleset_node:named_children()) do
+              if rule_child:type() == "block" then
+                arguments = eval_block_as_table(parser, source, rule_child)
+              end
+            end
+
+            return function_ref(arguments)
+          end
+        end
       end
     end
 
@@ -393,7 +456,6 @@ M.evaluate = function(filename)
   end
 
   local keymaps = evaluate_keymaps(parser, text, root_node)
-  print(vim.inspect(keymaps))
   for mode, keymap in pairs(keymaps or {}) do
     for key, settings in pairs(keymap) do
       vim.keymap.set(mode, key, settings.action, settings.opts)
@@ -421,6 +483,7 @@ M.evaluate = function(filename)
 end
 
 M._evaluate_plugin_spec = evaluate_plugin_spec
+M._evaluate_keymaps = evaluate_keymaps
 
 -- local test_plugin_manager = function()
 --   local deps = require "failwind.deps"

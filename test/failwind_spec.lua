@@ -53,9 +53,55 @@ describe("failwind", function()
     local parser = vim.treesitter.get_string_parser(text, "css")
     local root = parser:parse()[1]:root()
     local plugin = failwind._evaluate_plugin_spec(parser, text, root)
-
-    print(vim.inspect(plugin.oil))
     local column_value = plugin.oil.setup[1].opts.columns
     eq({ "icon" }, column_value)
+  end)
+
+  describe("keymaps", function()
+    it("should handle actions", function()
+      local text = [[
+keymaps {
+  normal {
+    :key("<esc>") {
+      action: "<cmd>nohlsearch<cr>";
+    }
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local keymaps = failwind._evaluate_keymaps(parser, text, root)
+      eq({ n = { ["<esc>"] = { action = "<cmd>nohlsearch<cr>", opts = {} } } }, keymaps)
+    end)
+
+    it("should handle multiple modes", function()
+      local text = [[
+keymaps {
+  normal, insert {
+    :key("<esc>") {
+      action: "<cmd>nohlsearch<cr>";
+    }
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local keymaps = failwind._evaluate_keymaps(parser, text, root)
+      local escape_mapping = { ["<esc>"] = { action = "<cmd>nohlsearch<cr>", opts = {} } }
+      eq({ n = escape_mapping, i = escape_mapping }, keymaps)
+    end)
+
+    it("should handle @call syntax", function()
+      local text = [[
+keymaps {
+  normal {
+    :key(' /') {
+      @call require('mod').f
+    }
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local keymaps = failwind._evaluate_keymaps(parser, text, root)
+      eq({}, keymaps)
+    end)
   end)
 end)
