@@ -1,4 +1,6 @@
 /* TODO: import statements, layers, !important LUL */
+/* @import("teej.something") */
+
 options {
   number: true;
   relativenumber: false;
@@ -42,7 +44,6 @@ keymaps {
     :key("<leader>q") {
       action: lua("vim.diagnostic.setloclist()");
     }
-
   }
 
   terminal {
@@ -65,8 +66,8 @@ plugins {
         delete { text: '_' }
         topdelete { text: '‾' }
         changedelete { text: '~' }
-      },
-    },
+      }
+    }
   }
 
   :repo("folke/which-key.nvim") {
@@ -121,6 +122,29 @@ plugins {
             cwd: vim-fn-stdpath("config");
           }
         }
+      }
+    }
+  }
+
+  :repo("neovim/nvim-lspconfig") {
+    depends:
+      "williamboman/mason.nvim" 
+      "williamboman/mason-lspconfig.nvim"
+      "WhoIsSethDaniel/mason-tool-installer.nvim";
+
+
+    setup: "mason" "mason-lspconfig";
+
+    :setup("mason-tool-installer") {
+      automatic_installation: true;
+      ensure_installed: ["lua_ls", "gopls"];
+    }
+
+    :config {
+      @call require('mason-lspconfig').setup_handlers {
+        /* lua_ls { @lua require("lspconfig").lua_ls.setup {} } */
+        lua_ls: lua('require("lspconfig").lua_ls.setup {}');
+        gopls: lua('require("lspconfig").gopls.setup {}');
       }
     }
   }
