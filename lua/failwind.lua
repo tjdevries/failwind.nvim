@@ -13,15 +13,12 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 
 --]]
 
-local get_text = function(node, source, opts)
-  local text = vim.treesitter.get_node_text(node, source, opts)
-  text = text:gsub("FAILWIND_UNICODE_OPENING_BRACE", "{")
+local eval = require "failwind.eval"
 
-  return text
-end
+local get_capture_idx = require("failwind.utils").get_capture_idx
+local get_text = require("failwind.utils").get_text
 
 local evaluate_block_as_table
-local evaluate_css_value
 
 local evaluate_call_statement = function(parser, source, child)
   local call_node = assert(child:named_child(1), "must have call")
@@ -94,16 +91,6 @@ local keymaps_query = vim.treesitter.query.parse(
 )
 
 local keymaps_value_query = vim.treesitter.query.parse("css", [[ (declaration (property_name) @name (_) @value) ]])
-local eval_lua_query = vim.treesitter.query.parse(
-  "css",
-  [[
-  ((call_expression
-    (function_name) @_name
-    (arguments (string_value) @value))
-   (#eq? @_name "lua"))
-]]
-)
-
 local plugin_spec_query = vim.treesitter.query.parse(
   "css",
   [[ ((rule_set
@@ -136,100 +123,6 @@ local config_setup_query = vim.treesitter.query.parse(
      (#eq? @_config "config"))]]
 )
 
-local get_capture_idx = function(captures, name)
-  for i, capture in ipairs(captures) do
-    if capture == name then
-      return i
-    end
-  end
-  error(string.format("capture not found: %s // %s", name, vim.inspect(captures)))
-end
-
---- Evaluate stuff RECURSIVELY
----@param parser vim.treesitter.LanguageTree
----@param source string
----@param node TSNode
-evaluate_css_value = function(parser, source, node)
-  local ty = node:type()
-  local text = get_text(node, source)
-  if ty == "plain_value" then
-    if text == "true" then
-      return true
-    elseif text == "false" then
-      return false
-    end
-
-    error(string.format("Unknown plain_value %s", text))
-  elseif ty == "string_value" then
-    return string.sub(text, 2, -2)
-  elseif ty == "integer_value" then
-    return tonumber(text)
-  elseif ty == "property_name" then
-    return text
-  elseif ty == "call_expression" then
-    local function_node = assert(node:child(0), "all call_expression have function_node")
-    local function_name = get_text(function_node, source)
-    if function_name == "lua" then
-      local value_idx = get_capture_idx(eval_lua_query.captures, "value")
-      local values = {}
-      for _, call, _ in eval_lua_query:iter_matches(node, source, 0, -1, { all = true }) do
-        table.insert(values, evaluate_css_value(parser, source, call[value_idx][1]))
-      end
-
-      local code = table.concat(values, "\n")
-      return loadstring(code)
-    elseif function_name == "function" then
-      local arguments = {}
-      local arguments_node = assert(node:child(1), "all call_expression have arguments")
-      for _, arg in ipairs(arguments_node:named_children()) do
-        assert(arg:type() == "string_value", "all arguments must be string_values")
-        table.insert(arguments, evaluate_css_value(parser, source, arg))
-      end
-
-      local body = table.concat(arguments, ";\n")
-
-      local function_ref = assert(
-        loadstring(string.format(
-          [[ return function()
-             %s
-           end ]],
-          body
-        )),
-        "must load a valid function_reference"
-      )
-
-      return function_ref
-    else
-      function_name = function_name:gsub("-", ".")
-      local function_ref = loadstring("return " .. function_name)()
-
-      local arguments = {}
-      local arguments_node = assert(node:child(1), "all call_expression have arguments")
-      for _, arg in ipairs(arguments_node:named_children()) do
-        table.insert(arguments, evaluate_css_value(parser, source, arg))
-      end
-
-      return function_ref(unpack(arguments))
-    end
-  elseif ty == "grid_value" then
-    local values = {}
-    for _, child in ipairs(node:named_children()) do
-      table.insert(values, evaluate_css_value(parser, source, child))
-    end
-
-    return values
-  elseif ty == "selectors" then
-    -- TODO: This seems questionable?
-    return get_text(node, source)
-  elseif ty == "postcss_statement" then
-    local child = assert(node:named_child(0), "must have a child")
-    local keyword = get_text(child, source)
-    error(string.format("unknown postcss_statement: %s", keyword))
-  else
-    error(string.format("Unknown css_value %s / %s", ty, source))
-  end
-end
-
 ---
 ---@param text number
 ---@param node TSNode
@@ -245,7 +138,7 @@ local fold_declaration = function(parser, text, node, filter)
         local property = get_text(property_name, text)
         if property_name:type() == "property_name" and property == filter then
           for j = 1, child:named_child_count() - 1 do
-            table.insert(result, evaluate_css_value(parser, text, assert(child:named_child(j))))
+            table.insert(result, eval.css_value(parser, text, assert(child:named_child(j))))
           end
         end
       end
@@ -276,14 +169,14 @@ evaluate_block_as_table = function(parser, text, module_config_node)
     if child_type == "declaration" then
       local declaration_count = child:named_child_count()
       if declaration_count == 2 then
-        local property_name = evaluate_css_value(parser, text, child:named_child(0))
-        local property_value = evaluate_css_value(parser, text, child:named_child(1))
+        local property_name = eval.css_value(parser, text, child:named_child(0))
+        local property_value = eval.css_value(parser, text, child:named_child(1))
         result[property_name] = property_value
       else
         error "Invalid declaration"
       end
     elseif child_type == "rule_set" then
-      local property_name = evaluate_css_value(parser, text, child:named_child(0))
+      local property_name = eval.css_value(parser, text, child:named_child(0))
       local property_value = evaluate_block_as_table(parser, text, child:named_child(1))
       result[property_name] = property_value
     elseif child_type == "postcss_statement" then
@@ -291,11 +184,11 @@ evaluate_block_as_table = function(parser, text, module_config_node)
       if keyword == "@-" then
         local child_count = child:named_child_count()
         if child_count == 3 then
-          local property_name = evaluate_css_value(parser, text, child:named_child(1))
-          local property_value = evaluate_css_value(parser, text, child:named_child(2))
+          local property_name = eval.css_value(parser, text, child:named_child(1))
+          local property_value = eval.css_value(parser, text, child:named_child(2))
           result[property_name] = property_value
         elseif child_count == 2 then
-          local property_value = evaluate_css_value(parser, text, child:named_child(1))
+          local property_value = eval.css_value(parser, text, child:named_child(1))
           table.insert(result, property_value)
         else
           error(string.format("Unknown postcss_statement %s: %d", vim.inspect(child), child_count))
@@ -327,7 +220,7 @@ local evaluate_plugin_setup = function(parser, text, plugin_config_node)
   local module_name_idx = get_capture_idx(plugin_setup_query.captures, "module_name")
   local module_config_idx = get_capture_idx(plugin_setup_query.captures, "module_config")
   for _, plugin_setup_node, _ in plugin_setup_query:iter_matches(plugin_config_node, text, 0, -1, { all = true }) do
-    local module_name = evaluate_css_value(parser, text, plugin_setup_node[module_name_idx][1])
+    local module_name = eval.css_value(parser, text, plugin_setup_node[module_name_idx][1])
     local module_config = evaluate_block_as_table(parser, text, plugin_setup_node[module_config_idx][1])
     table.insert(custom_setups, { module = module_name, opts = module_config })
   end
@@ -380,7 +273,7 @@ local evaluate_plugin_spec = function(parser, text, root_node)
   local plugin = get_capture_idx(plugin_spec_query.captures, "plugin")
   local plugin_config = get_capture_idx(plugin_spec_query.captures, "plugin_config")
   for _, match, _ in plugin_spec_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
-    local plugin_name = evaluate_css_value(parser, text, match[plugin][1])
+    local plugin_name = eval.css_value(parser, text, match[plugin][1])
     local plugin_config_node = match[plugin_config][1]
     local config = evaluate_plugin_config(parser, text, plugin_name, plugin_config_node)
     plugins[config.name] = config
@@ -404,23 +297,23 @@ local evaluate_keymaps = function(parser, source, root_node)
   local keymaps = {}
   for _, match, _ in keymaps_query:iter_matches(root_node:root(), source, 0, -1, { all = true }) do
     local mode = get_text(match[mode_idx][1], source)
-    local key = evaluate_css_value(parser, source, match[key_idx][1])
+    local key = eval.css_value(parser, source, match[key_idx][1])
     local keymap = match[keymap_idx][1]
 
     local action = nil
     local opts = {}
     for _, declaration, _ in keymaps_value_query:iter_matches(keymap, source, 0, -1, { all = true }) do
-      local name = evaluate_css_value(parser, source, declaration[name_idx][1])
+      local name = eval.css_value(parser, source, declaration[name_idx][1])
       local value = declaration[value_idx][1]
 
       if name == "action" then
-        action = evaluate_css_value(parser, source, value)
+        action = eval.css_value(parser, source, value)
       elseif name == "command" then
-        local command = evaluate_css_value(parser, source, value)
+        local command = eval.css_value(parser, source, value)
         assert(type(command) == "string", "must be string")
         action = string.format("<cmd>%s<CR>", command)
       elseif name == "desc" then
-        opts.desc = evaluate_css_value(parser, source, value)
+        opts.desc = eval.css_value(parser, source, value)
       end
     end
 
@@ -506,7 +399,7 @@ M.evaluate = function(filename)
     local name_node = match[2][1]
     local value_node = match[3][1]
     local name = get_text(name_node, text)
-    local value = evaluate_css_value(parser, text, value_node)
+    local value = eval.css_value(parser, text, value_node)
     vim.o[name] = value
   end
 
@@ -521,7 +414,7 @@ M.evaluate = function(filename)
       local name_node = match[name_idx][1]
       local value_node = match[value_idx][1]
       local name = get_text(name_node, text)
-      local value = evaluate_css_value(parser, text, value_node)
+      local value = eval.css_value(parser, text, value_node)
 
       if not ftoptions[filetype] then
         ftoptions[filetype] = {}
@@ -569,6 +462,12 @@ M.evaluate = function(filename)
     for _, config in pairs(plugin.config) do
       config()
     end
+  end
+
+  package.loaded["failwind.highlight"] = nil
+  local highlights = require("failwind.highlight").evaluate_highlight_blocks(parser, text, root_node:root())
+  for name, highlight in pairs(highlights) do
+    vim.api.nvim_set_hl(0, name, highlight)
   end
 end
 

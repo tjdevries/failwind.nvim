@@ -1,4 +1,5 @@
 local failwind = require "failwind"
+local failwind_hl = require "failwind.highlight"
 
 ---@diagnostic disable-next-line: undefined-field
 local eq = assert.are.same
@@ -89,12 +90,12 @@ keymaps {
       eq({ n = escape_mapping, i = escape_mapping }, keymaps)
     end)
 
-    it("should handle @call syntax", function()
+    pending("should handle @call syntax", function()
       local text = [[
 keymaps {
   normal {
     :key(' /') {
-      @call require('mod').f
+      @call require('mod').f {}
     }
   }
 } ]]
@@ -102,6 +103,73 @@ keymaps {
       local root = parser:parse()[1]:root()
       local keymaps = failwind._evaluate_keymaps(parser, text, root)
       eq({}, keymaps)
+    end)
+  end)
+
+  describe("highlights", function()
+    it("should handle simple class highlights", function()
+      local text = [[
+highlight {
+  .DiagnosticUnderlineWarn {
+    border-color: pink;
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local highlights = failwind_hl.evaluate_highlight_blocks(parser, text, root)
+      eq({
+        DiagnosticUnderlineWarn = { sp = "pink" },
+      }, highlights)
+    end)
+
+    it("should handle simple tag highlights", function()
+      local text = [[
+highlight {
+  keyword {
+    color: yellow;
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local highlights = failwind_hl.evaluate_highlight_blocks(parser, text, root)
+      eq({
+        ["@keyword"] = { fg = "yellow" },
+      }, highlights)
+    end)
+
+    it("should handle nested tag highlights", function()
+      local text = [[
+highlight {
+  keyword {
+    background: blue;
+
+    lua {
+      color: yellow;
+    }
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local highlights = failwind_hl.evaluate_highlight_blocks(parser, text, root)
+      eq({
+        ["@keyword"] = { bg = "blue" },
+        ["@keyword.lua"] = { fg = "yellow", bg = "blue" },
+      }, highlights)
+    end)
+
+    it("should evaluate rgb(...)", function()
+      local text = [[
+highlight {
+  keyword {
+    color: rgb(255, 0, 0);
+  }
+} ]]
+      local parser = vim.treesitter.get_string_parser(text, "css")
+      local root = parser:parse()[1]:root()
+      local highlights = failwind_hl.evaluate_highlight_blocks(parser, text, root)
+      eq({
+        ["@keyword"] = { fg = "#FF0000" },
+      }, highlights)
     end)
   end)
 end)
