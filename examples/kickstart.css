@@ -29,7 +29,7 @@ options {
     tabstop: 2;
   }
 
-  lua {
+  lua, javascript, typescript {
     tabstop: 2;
   }
 }
@@ -37,9 +37,7 @@ options {
 /* Top-level keymaps container */
 keymaps {
   normal {
-    :key("<esc>") {
-      action: "<cmd>nohlsearch<cr>";
-    }
+    :key("<esc>") { command: "nohlsearch"; }
 
     :key("<leader>q") {
       action: lua("vim.diagnostic.setloclist()");
@@ -88,16 +86,16 @@ plugins {
 
     keymaps {
       normal {
-        :key(' sh') { action: "<cmd>Telescope help_tags<CR>"; }
-        :key(' sk') { action: "<cmd>Telescope keymaps<CR>"; }
-        :key(' sf') { action: "<cmd>Telescope find_files<CR>"; }
-        :key(' ss') { action: "<cmd>Telescope builtin<CR>"; }
-        :key(' sw') { action: "<cmd>Telescope grep_string<CR>"; }
-        :key(' sg') { action: "<cmd>Telescope live_grep<CR>"; }
-        :key(' sd') { action: "<cmd>Telescope diagnostics<CR>"; }
-        :key(' sr') { action: "<cmd>Telescope resume<CR>"; }
-        :key(' s.') { action: "<cmd>Telescope oldfiles<CR>"; }
-        :key('  ')  { action: "<cmd>Telescope buffers<CR>"; }
+        :key(' sh') { command: "Telescope help_tags"; }
+        :key(' sk') { command: "Telescope keymaps"; }
+        :key(' sf') { command: "Telescope find_files"; }
+        :key(' ss') { command: "Telescope builtin"; }
+        :key(' sw') { command: "Telescope grep_string"; }
+        :key(' sg') { command: "Telescope live_grep"; }
+        :key(' sd') { command: "Telescope diagnostics"; }
+        :key(' sr') { command: "Telescope resume"; }
+        :key(' s.') { command: "Telescope oldfiles"; }
+        :key('  ')  { command: "Telescope buffers"; }
 
         /* :key(' /') {
           desc: "Fuzzily search in current buffer";
@@ -200,3 +198,36 @@ plugins {
   }
 }
 
+/* Neovim Colorschemes... in CSS */
+highlight {
+  .DiagnosticUnderlineWarn {
+    text-decoration: underline;
+    border-color: "#f0f0f0";
+  }
+
+  keyword {
+    function {
+      color: red;
+      background: rgb(255, 0, 0);
+
+      lua {
+        color: hsl(120 50% 50%);
+        font-weight: bold;
+      }
+    }
+  }
+}
+
+_highlight {
+  lsp {
+    type {
+      color: red;
+      background: rgb(50, 50, 50);
+      font-style: italic;
+
+      builtin {
+        font-weight: bold;
+      }
+    }
+  }
+}
