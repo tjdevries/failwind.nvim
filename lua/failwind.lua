@@ -38,13 +38,10 @@ local evaluate_call_statement = function(parser, source, child)
     local arguments
     for _, rule_child in ipairs(ruleset_node:named_children()) do
       if rule_child:type() == "block" then
-        print("rule_child:", get_text(rule_child, source))
         arguments = evaluate_block_as_table(parser, source, rule_child)
-        print("  ", vim.inspect(arguments))
       end
     end
 
-    print("calling:", function_text, vim.inspect(arguments))
     return function_ref(arguments)
   end
 end
@@ -346,9 +343,7 @@ local evaluate_plugin_config_items = function(parser, text, plugin_config_node)
   local custom_setups = {}
   local module_config_idx = get_capture_idx(config_setup_query.captures, "module_config")
   for _, plugin_setup_node, _ in config_setup_query:iter_matches(plugin_config_node, text, 0, -1, { all = true }) do
-    print(module_config_idx, vim.inspect(plugin_setup_node))
     local config_node = plugin_setup_node[module_config_idx][1]
-    print(vim.inspect(config_node))
 
     for _, child in ipairs(config_node:named_children()) do
       local f = evaluate_call_statement(parser, text, child)
@@ -420,6 +415,10 @@ local evaluate_keymaps = function(parser, source, root_node)
 
       if name == "action" then
         action = evaluate_css_value(parser, source, value)
+      elseif name == "command" then
+        local command = evaluate_css_value(parser, source, value)
+        assert(type(command) == "string", "must be string")
+        action = string.format("<cmd>%s<CR>", command)
       elseif name == "desc" then
         opts.desc = evaluate_css_value(parser, source, value)
       end
