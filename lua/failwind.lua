@@ -15,8 +15,10 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 
 local eval = require "failwind.eval"
 
+local utils = require "failwind.utils"
 local get_capture_idx = require("failwind.utils").get_capture_idx
 local get_text = require("failwind.utils").get_text
+local read_file = require("failwind.utils").read_file
 
 local evaluate_block_as_table
 
@@ -349,51 +351,19 @@ local evaluate_keymaps = function(parser, source, root_node)
 end
 
 M.evaluate = function(filename)
-  local lines = vim.fn.readfile(filename)
-  for i, line in ipairs(lines) do
-    local newline = ""
-
-    local inside_single_string = false
-    local inside_double_string = false
-
-    for idx = 1, #line do
-      if inside_single_string then
-        if line:sub(idx, idx) == "'" then
-          inside_single_string = false
-          newline = newline .. "'"
-        elseif line:sub(idx, idx) == "{" then
-          newline = newline .. [[FAILWIND_UNICODE_OPENING_BRACE]]
-        else
-          newline = newline .. line:sub(idx, idx)
-        end
-      elseif inside_double_string then
-        if line:sub(idx, idx) == '"' then
-          inside_double_string = false
-          newline = newline .. '"'
-        elseif line:sub(idx, idx) == "{" then
-          newline = newline .. [[FAILWIND_UNICODE_OPENING_BRACE]]
-        else
-          newline = newline .. line:sub(idx, idx)
-        end
-      else
-        if line:sub(idx, idx) == "'" then
-          inside_single_string = true
-          newline = newline .. "'"
-        elseif line:sub(idx, idx) == '"' then
-          inside_double_string = true
-          newline = newline .. '"'
-        else
-          newline = newline .. line:sub(idx, idx)
-        end
-      end
-    end
-
-    lines[i] = newline
-  end
-  local text = table.concat(lines, "\n")
+  local text = read_file(filename)
   local parser = vim.treesitter.get_string_parser(text, "css")
-
   local root_node = parser:parse()[1]
+
+  local imports = require("failwind.import").evaluate(parser, text, root_node:root())
+  for _, import in pairs(imports) do
+    local contents = require("failwind.import").read(import)
+    text = contents .. "\n" .. text
+  end
+
+  -- Update parser and root_node
+  parser = vim.treesitter.get_string_parser(text, "css")
+  root_node = parser:parse()[1]
 
   for _, match, _ in options_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
     local name_node = match[2][1]

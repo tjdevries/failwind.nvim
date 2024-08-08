@@ -101,7 +101,7 @@ local eval = {}
 ---@param parser vim.treesitter.LanguageTree
 ---@param source string
 ---@param node TSNode
----@param opts failwind.eval.ValueOpts
+---@param opts failwind.eval.ValueOpts?
 eval.css_value = function(parser, source, node, opts)
   opts = opts or {
     plain_value_as_string = false,
