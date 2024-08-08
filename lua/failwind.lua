@@ -104,6 +104,20 @@ local plugin_spec_query = vim.treesitter.query.parse(
      (#eq? @_class "repo")) ]]
 )
 
+local plugin_group_query = vim.treesitter.query.parse(
+  "css",
+  [[ 
+(stylesheet
+ (rule_set
+  (selectors
+   (tag_name) @_plugins (#eq? @_plugins "plugins"))
+  (block
+   (rule_set
+    (selectors (tag_name) @plugin)
+    (block) @plugin_config))))
+ ]]
+)
+
 local plugin_setup_query = vim.treesitter.query.parse(
   "css",
   [[ ((rule_set
@@ -159,6 +173,7 @@ end
 ---@field setup failwind.PluginSetup[]
 ---@field depends string[]
 ---@field config function[]
+---@field is_repo boolean
 
 evaluate_block_as_table = function(parser, text, module_config_node)
   local result = {}
@@ -199,7 +214,7 @@ evaluate_block_as_table = function(parser, text, module_config_node)
     elseif child_type == "comment" then
       -- pass
     else
-      error(string.format("Unknown block type %s: %s", child_type, vim.inspect(child)))
+      error(string.format("Unknown block type %s: %s\n%s", child_type, vim.inspect(child), child:range()))
     end
   end
 
@@ -255,14 +270,16 @@ end
 ---@param text any
 ---@param plugin_name any
 ---@param plugin_config_node any
+---@param is_repo boolean
 ---@return failwind.PluginSpec
-local evaluate_plugin_config = function(parser, text, plugin_name, plugin_config_node)
+local evaluate_plugin_config = function(parser, text, plugin_name, plugin_config_node, is_repo)
   ---@type failwind.PluginSpec
   local config = {
     name = plugin_name,
     depends = fold_declaration(parser, text, plugin_config_node, "depends"),
     setup = evaluate_plugin_setup(parser, text, plugin_config_node),
     config = evaluate_plugin_config_items(parser, text, plugin_config_node),
+    is_repo = is_repo,
   }
 
   return config
@@ -272,13 +289,28 @@ local evaluate_plugin_spec = function(parser, text, root_node)
   ---@type table<string, failwind.PluginSpec>
   local plugins = {}
 
-  local plugin = get_capture_idx(plugin_spec_query.captures, "plugin")
-  local plugin_config = get_capture_idx(plugin_spec_query.captures, "plugin_config")
-  for _, match, _ in plugin_spec_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
-    local plugin_name = eval.css_value(parser, text, match[plugin][1])
-    local plugin_config_node = match[plugin_config][1]
-    local config = evaluate_plugin_config(parser, text, plugin_name, plugin_config_node)
-    plugins[config.name] = config
+  do -- :repo("...") {}
+    local plugin = get_capture_idx(plugin_spec_query.captures, "plugin")
+    local plugin_config = get_capture_idx(plugin_spec_query.captures, "plugin_config")
+    for _, match, _ in plugin_spec_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
+      local plugin_name = eval.css_value(parser, text, match[plugin][1])
+      local plugin_config_node = match[plugin_config][1]
+      local config = evaluate_plugin_config(parser, text, plugin_name, plugin_config_node, true)
+      plugins[config.name] = config
+    end
+  end
+
+  do -- group {}
+    print "plugin groups"
+    local plugin = get_capture_idx(plugin_group_query.captures, "plugin")
+    local plugin_config = get_capture_idx(plugin_group_query.captures, "plugin_config")
+    for _, match, _ in plugin_group_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
+      local plugin_name = get_text(match[plugin][1], text)
+      print(vim.inspect(match), plugin_name)
+      local plugin_config_node = match[plugin_config][1]
+      local config = evaluate_plugin_config(parser, text, plugin_name, plugin_config_node, false)
+      plugins[config.name] = config
+    end
   end
 
   return plugins
@@ -423,7 +455,9 @@ M.evaluate = function(filename)
       deps.add(dep)
     end
 
-    deps.add(plugin.name)
+    if plugin.is_repo then
+      deps.add(plugin.name)
+    end
 
     for _, setup in pairs(plugin.setup) do
       require(setup.module).setup(setup.opts)

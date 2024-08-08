@@ -89,7 +89,7 @@ import.read = function(spec)
       -- end
     end
 
-    return table.concat(result, "\n")
+    return util.fix_stupid_treesitter_brace(result)
   else
     return text
   end
@@ -120,7 +120,9 @@ local feature_query_strings = vim.treesitter.query.parse(
   [[ (feature_query
       (feature_name) @feature_name
       [(_ (string_value) @string)
-       (string_value) @string]) ]]
+       (string_value) @string
+       (_ (plain_value) @tag)
+       (plain_value) @tag]) ]]
 )
 
 import._make_feature_filter = function(parser, source, feature_node)
@@ -137,20 +139,40 @@ import._make_feature_filter = function(parser, source, feature_node)
  (#eq? @class "\"%s\""))
   ]]
 
+  local format_plugin_query_string_tag = [[
+((rule_set
+  (selectors (tag_name) @_tag)
+  (block
+   (rule_set
+     (selectors (tag_name) @tag))) @result)
+ (#eq? @_tag "plugins")
+ (#eq? @tag "%s"))
+  ]]
+
   local plugin_queries = {}
 
   local string_idx = get_capture_idx(feature_query_strings.captures, "string")
+  local tag_idx = get_capture_idx(feature_query_strings.captures, "tag")
   local feature_name_idx = get_capture_idx(feature_query_strings.captures, "feature_name")
   for _, match, _ in feature_query_strings:iter_matches(feature_node, source, 0, -1, { all = true }) do
     local feature_name = get_text(match[feature_name_idx][1], source)
 
     if feature_name == "plugins" then
-      local plugin_name = eval.css_value(parser, source, match[string_idx][1], { plain_value_as_string = true })
-      local formatted_query = string.format(format_plugin_query_string, plugin_name)
-      local query = vim.treesitter.query.parse("css", formatted_query)
-      table.insert(plugin_queries, query)
+      if match[string_idx] then
+        local plugin_name = eval.css_value(parser, source, match[string_idx][1], { plain_value_as_string = true })
+        local formatted_query = string.format(format_plugin_query_string, plugin_name)
+        local query = vim.treesitter.query.parse("css", formatted_query)
+        table.insert(plugin_queries, query)
+      elseif match[tag_idx] then
+        local plugin_name = get_text(match[tag_idx][1], source)
+        local formatted_query = string.format(format_plugin_query_string_tag, plugin_name)
+        local query = vim.treesitter.query.parse("css", formatted_query)
+        table.insert(plugin_queries, query)
+      else
+        error "UNKNOWN MATCH TIME"
+      end
     else
-      error("Unsupported feature filter:" .. feature_name)
+      error("Unsupported feature filter:" .. feature_name .. vim.inspect(match))
     end
   end
 
@@ -160,6 +182,8 @@ import._make_feature_filter = function(parser, source, feature_node)
           (string_value))) --]]
   return function(matched_source, tagname, ruleset_node, block_node)
     if tagname == "plugins" then
+      matched_source = util.fix_stupid_treesitter_brace(matched_source)
+
       local matches = {}
       for _, query in ipairs(plugin_queries) do
         local result_idx = get_capture_idx(query.captures, "result")

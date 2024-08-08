@@ -22,9 +22,13 @@ M.read_file = function(filename)
 end
 
 --- Fix the dumb { problem in strings
----@param lines string[]
+---@param lines string[]|string
 ---@return string
 M.fix_stupid_treesitter_brace = function(lines)
+  if type(lines) == "string" then
+    lines = vim.split(lines, "\n")
+  end
+
   for i, line in ipairs(lines) do
     local newline = ""
 
