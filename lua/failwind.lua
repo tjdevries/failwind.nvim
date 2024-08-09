@@ -397,6 +397,9 @@ M.evaluate = function(filename)
   parser = vim.treesitter.get_string_parser(text, "css")
   root_node = parser:parse()[1]
 
+  -- Evaluate all global variables
+  require("failwind.variables").globals(parser, text, root_node:root())
+
   for _, match, _ in options_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
     local name_node = match[2][1]
     local value_node = match[3][1]

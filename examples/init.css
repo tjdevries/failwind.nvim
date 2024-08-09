@@ -4,6 +4,10 @@ options {
 	relativenumber: true;
 }
 
+:root {
+  --main-color: #ff0000;
+}
+
 /* Top-level keymaps container */
 keymaps {
 	normal, insert {

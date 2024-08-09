@@ -144,7 +144,8 @@ import._make_feature_filter = function(parser, source, feature_node)
   (selectors (tag_name) @_tag)
   (block
    (rule_set
-     (selectors (tag_name) @tag))) @result)
+     (selectors (tag_name) @tag)
+     (block)) @result))
  (#eq? @_tag "plugins")
  (#eq? @tag "%s"))
   ]]
@@ -189,7 +190,7 @@ import._make_feature_filter = function(parser, source, feature_node)
         local result_idx = get_capture_idx(query.captures, "result")
         for _, match in query:iter_matches(ruleset_node, matched_source, 0, -1, { all = true }) do
           local result = get_text(match[result_idx][1], matched_source)
-          table.insert(matches, string.format("plugins {\n%s\n}", result))
+          table.insert(matches, string.format("\n/* start */\nplugins {\n%s\n}\n", result))
         end
       end
 
