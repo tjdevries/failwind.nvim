@@ -90,39 +90,40 @@ css_functions = {
   hsla = function(h, s, l, _)
     return css_functions.hsl(h, s, l)
   end,
+
+  var = function(name, default)
+    local result = require("failwind.variables").eval(name)
+    if result ~= nil then
+      return result
+    end
+
+    return default
+  end,
 }
 
 local eval = {}
 
 ---@class failwind.eval.ValueOpts
----@field plain_value_as_string boolean
 
 --- Evaluate stuff RECURSIVELY
 ---@param parser vim.treesitter.LanguageTree
 ---@param source string
 ---@param node TSNode
----@param opts failwind.eval.ValueOpts?
-eval.css_value = function(parser, source, node, opts)
-  opts = opts or {
-    plain_value_as_string = false,
-  }
-
+eval.css_value = function(parser, source, node)
   local ty = node:type()
   local text = get_text(node, source)
   if ty == "plain_value" then
-    if opts.plain_value_as_string then
-      return text
-    end
-
     if text == "true" then
       return true
     elseif text == "false" then
       return false
     end
 
-    error(string.format("Unknown plain_value %s", text))
+    return text
   elseif ty == "string_value" then
     return string.sub(text, 2, -2)
+  elseif ty == "color_value" then
+    return text
   elseif ty == "integer_value" then
     return convertPercentageStringToNumber(text)
   elseif ty == "float_value" then

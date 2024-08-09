@@ -160,7 +160,7 @@ import._make_feature_filter = function(parser, source, feature_node)
 
     if feature_name == "plugins" then
       if match[string_idx] then
-        local plugin_name = eval.css_value(parser, source, match[string_idx][1], { plain_value_as_string = true })
+        local plugin_name = eval.css_value(parser, source, match[string_idx][1])
         local formatted_query = string.format(format_plugin_query_string, plugin_name)
         local query = vim.treesitter.query.parse("css", formatted_query)
         table.insert(plugin_queries, query)

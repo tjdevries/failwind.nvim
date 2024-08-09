@@ -51,7 +51,7 @@ local evaluate_configuration_node = function(parser, source, node)
     ["background-color"] = "bg",
     ["border-color"] = "sp",
     ["font-weight"] = function(child)
-      local value = eval.css_value(parser, source, assert(child:named_child(1)), { plain_value_as_string = true })
+      local value = eval.css_value(parser, source, assert(child:named_child(1)))
       if value == "bold" then
         return "bold", true
       else
@@ -59,7 +59,7 @@ local evaluate_configuration_node = function(parser, source, node)
       end
     end,
     ["font-style"] = function(child)
-      local value = eval.css_value(parser, source, assert(child:named_child(1)), { plain_value_as_string = true })
+      local value = eval.css_value(parser, source, assert(child:named_child(1)))
       if value == "italic" then
         return "italic", true
       else
@@ -77,7 +77,7 @@ local evaluate_configuration_node = function(parser, source, node)
       local values = {}
       for idx = 1, child:named_child_count() - 1 do
         local value_node = assert(child:named_child(idx), "must have value")
-        table.insert(values, eval.css_value(parser, source, value_node, { plain_value_as_string = true }))
+        table.insert(values, eval.css_value(parser, source, value_node))
       end
 
       if #values == 2 then
@@ -121,7 +121,7 @@ local evaluate_configuration_node = function(parser, source, node)
         local name, value = transform(child)
         config[name] = value
       elseif type(transform) == "string" then
-        local value = eval.css_value(parser, source, assert(child:named_child(1)), { plain_value_as_string = true })
+        local value = eval.css_value(parser, source, assert(child:named_child(1)))
         config[transform] = value
       elseif transform == nil then
       else

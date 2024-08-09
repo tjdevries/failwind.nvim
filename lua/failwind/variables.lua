@@ -1,6 +1,8 @@
 local get_capture_idx = require("failwind.utils").get_capture_idx
 local get_text = require("failwind.utils").get_text
 
+local eval = require "failwind.eval"
+
 local vars = {}
 
 local root_query = vim.treesitter.query.parse(
@@ -17,18 +19,22 @@ local root_query = vim.treesitter.query.parse(
  (#vim-match? @name "^--")) ]]
 )
 
+vars.root = {}
+
+vars.eval = function(name)
+  return vars.root[name]
+end
+
 vars.globals = function(parser, source, root)
-  print "... starting globals ..."
-  -- print(vim.inspect(root_query), source)
   vim.fn.writefile(vim.split(source, "\n"), "/tmp/failwind.globals.css")
+
   local name_idx = get_capture_idx(root_query.captures, "name")
   local value_idx = get_capture_idx(root_query.captures, "value")
   for _, match, _ in root_query:iter_matches(root, source, 0, -1, { all = true }) do
     local name = get_text(match[name_idx][1], source)
-    local value = get_text(match[value_idx][1], source)
-    print("globals", name, value)
+    local value = eval.css_value(parser, source, match[value_idx][1])
+    vars.root[name] = value
   end
-  print "... globals done ..."
 end
 
 --[[

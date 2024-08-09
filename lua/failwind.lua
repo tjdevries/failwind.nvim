@@ -301,12 +301,10 @@ local evaluate_plugin_spec = function(parser, text, root_node)
   end
 
   do -- group {}
-    print "plugin groups"
     local plugin = get_capture_idx(plugin_group_query.captures, "plugin")
     local plugin_config = get_capture_idx(plugin_group_query.captures, "plugin_config")
     for _, match, _ in plugin_group_query:iter_matches(root_node:root(), text, 0, -1, { all = true }) do
       local plugin_name = get_text(match[plugin][1], text)
-      print(vim.inspect(match), plugin_name)
       local plugin_config_node = match[plugin_config][1]
       local config = evaluate_plugin_config(parser, text, plugin_name, plugin_config_node, false)
       plugins[config.name] = config
