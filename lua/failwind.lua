@@ -386,7 +386,8 @@ M.evaluate = function(filename)
     require("failwind.utils").replace_node_with_text(ctx, node, content)
   end
 
-  vim.fn.writefile(vim.split(ctx.source, "\n"), "/tmp/failwind.globals.css")
+  -- Very helpful for debugging import problems.
+  -- vim.fn.writefile(vim.split(ctx.source, "\n"), "/tmp/failwind.globals.css")
 
   -- Evaluate all global variables
   require("failwind.variables").globals(ctx)
