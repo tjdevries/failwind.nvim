@@ -30,7 +30,7 @@ local tag_selector_query = vim.treesitter.query.parse(
        (block) @configuration) @ruleset) @block ]]
 )
 
-local evaluate_configuration_node = function(parser, source, node)
+local evaluate_configuration_node = function(ctx, node)
   -- TODO: The rest of these fields
   -- link: (No direct equivalent, would use CSS classes for grouping styles)
   --
@@ -51,7 +51,7 @@ local evaluate_configuration_node = function(parser, source, node)
     ["background-color"] = "bg",
     ["border-color"] = "sp",
     ["font-weight"] = function(child)
-      local value = eval.css_value(parser, source, assert(child:named_child(1)))
+      local value = eval.css_value(ctx, assert(child:named_child(1)))
       if value == "bold" then
         return "bold", true
       else
@@ -59,7 +59,7 @@ local evaluate_configuration_node = function(parser, source, node)
       end
     end,
     ["font-style"] = function(child)
-      local value = eval.css_value(parser, source, assert(child:named_child(1)))
+      local value = eval.css_value(ctx, assert(child:named_child(1)))
       if value == "italic" then
         return "italic", true
       else
@@ -77,7 +77,7 @@ local evaluate_configuration_node = function(parser, source, node)
       local values = {}
       for idx = 1, child:named_child_count() - 1 do
         local value_node = assert(child:named_child(idx), "must have value")
-        table.insert(values, eval.css_value(parser, source, value_node))
+        table.insert(values, eval.css_value(ctx, value_node))
       end
 
       if #values == 2 then
@@ -114,14 +114,14 @@ local evaluate_configuration_node = function(parser, source, node)
       -- pass
     elseif ty == "declaration" then
       local property_name = assert(child:named_child(0), "all declaration have property_name")
-      local property = get_text(property_name, source)
+      local property = get_text(ctx, property_name)
 
       local transform = property_to_nvim[property]
       if type(transform) == "function" then
         local name, value = transform(child)
         config[name] = value
       elseif type(transform) == "string" then
-        local value = eval.css_value(parser, source, assert(child:named_child(1)))
+        local value = eval.css_value(ctx, assert(child:named_child(1)))
         config[transform] = value
       elseif transform == nil then
       else
@@ -137,23 +137,31 @@ local evaluate_configuration_node = function(parser, source, node)
   return config
 end
 
-local process_class_selectors = function(parser, source, root, result)
+--- Process class selectors
+---@param ctx failwind.Context
+---@param root TSNode
+---@param result table
+local process_class_selectors = function(ctx, root, result)
   local name_idx = get_capture_idx(class_selector_query.captures, "name")
   local configuration_idx = get_capture_idx(class_selector_query.captures, "configuration")
 
-  for _, match, _ in class_selector_query:iter_matches(root, source, 0, -1, { all = true }) do
-    local name = get_text(match[name_idx][1], source)
+  for _, match, _ in ctx:iter(class_selector_query, root) do
+    local name = get_text(ctx, match[name_idx][1])
     local configuration_node = match[configuration_idx][1]
-    result[name] = evaluate_configuration_node(parser, source, configuration_node)
+    result[name] = evaluate_configuration_node(ctx, configuration_node)
   end
 end
 
-local process_tag_selectors = function(parser, source, root, result)
-  local configuration_idx = get_capture_idx(tag_selector_query.captures, "configuration")
+--- Process tag selectors
+---@param ctx failwind.Context
+---@param root TSNode
+---@param result table
+local process_tag_selectors = function(ctx, root, result)
+  -- local configuration_idx = get_capture_idx(tag_selector_query.captures, "configuration")
   local block_idx = get_capture_idx(tag_selector_query.captures, "block")
   local ruleset_idx = get_capture_idx(tag_selector_query.captures, "ruleset")
 
-  for _, match, _ in tag_selector_query:iter_matches(root, source, 0, -1, { all = true }) do
+  for _, match, _ in ctx:iter(tag_selector_query, root) do
     -- Get the parent tags
 
     ---@type TSNode[]
@@ -178,10 +186,10 @@ local process_tag_selectors = function(parser, source, root, result)
     local cascaded = {}
     local names = {}
     for _, n in ipairs(config_nodes) do
-      table.insert(names, get_text(n:named_child(0), source))
+      table.insert(names, get_text(ctx, assert(n:named_child(0), "must have name")))
       local configuration_node = n:named_child(1)
 
-      for k, v in pairs(evaluate_configuration_node(parser, source, configuration_node) or {}) do
+      for k, v in pairs(evaluate_configuration_node(ctx, configuration_node) or {}) do
         cascaded[k] = v
       end
     end
@@ -190,15 +198,17 @@ local process_tag_selectors = function(parser, source, root, result)
   end
 end
 
-highlight.evaluate_highlight_blocks = function(parser, source, root)
+--- Process highlight blocks
+---@param ctx failwind.Context
+highlight.evaluate_highlight_blocks = function(ctx, root)
   local result = {}
 
   local block_idx = get_capture_idx(highlight_block_query.captures, "block")
 
-  for _, highlight_match, _ in highlight_block_query:iter_matches(root, source, 0, -1, { all = true }) do
+  for _, highlight_match in ctx:iter(highlight_block_query, root) do
     local block_node = highlight_match[block_idx][1]
-    process_class_selectors(parser, source, block_node, result)
-    process_tag_selectors(parser, source, block_node, result)
+    process_class_selectors(ctx, block_node, result)
+    process_tag_selectors(ctx, block_node, result)
   end
 
   return result

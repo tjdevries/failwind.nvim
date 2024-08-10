@@ -34,16 +34,16 @@ end
 
 local css_functions
 css_functions = {
-  rgb = function(r, g, b)
+  rgb = function(_, r, g, b)
     return string.format("#%02x%02x%02x", r, g, b):upper()
   end,
 
-  rgba = function(r, g, b, _)
-    return css_functions.rgb(r, g, b)
+  rgba = function(ctx, r, g, b, _)
+    return css_functions.rgb(ctx, r, g, b)
   end,
 
   -- Function to convert HSL to RGB
-  hsl = function(h, s, l)
+  hsl = function(ctx, h, s, l)
     local function hueToRgb(p, q, t)
       if t < 0 then
         t = t + 1
@@ -84,15 +84,15 @@ css_functions = {
     local g = hueToRgb(p, q, h) * 255
     local b = hueToRgb(p, q, h - 1 / 3) * 255
 
-    return css_functions.rgb(math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5))
+    return css_functions.rgb(ctx, math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5))
   end,
 
-  hsla = function(h, s, l, _)
-    return css_functions.hsl(h, s, l)
+  hsla = function(ctx, h, s, l, _)
+    return css_functions.hsl(ctx, h, s, l)
   end,
 
-  var = function(name, default)
-    local result = require("failwind.variables").eval(name)
+  var = function(ctx, name, default)
+    local result = require("failwind.variables").eval(ctx, name)
     if result ~= nil then
       return result
     end
@@ -106,12 +106,11 @@ local eval = {}
 ---@class failwind.eval.ValueOpts
 
 --- Evaluate stuff RECURSIVELY
----@param parser vim.treesitter.LanguageTree
----@param source string
+---@param ctx failwind.Context
 ---@param node TSNode
-eval.css_value = function(parser, source, node)
+eval.css_value = function(ctx, node)
   local ty = node:type()
-  local text = get_text(node, source)
+  local text = get_text(ctx, node)
   if ty == "plain_value" then
     if text == "true" then
       return true
@@ -132,12 +131,12 @@ eval.css_value = function(parser, source, node)
     return text
   elseif ty == "call_expression" then
     local function_node = assert(node:child(0), "all call_expression have function_node")
-    local function_name = get_text(function_node, source)
+    local function_name = get_text(ctx, function_node)
     if function_name == "lua" then
       local value_idx = get_capture_idx(eval_lua_query.captures, "value")
       local values = {}
-      for _, call, _ in eval_lua_query:iter_matches(node, source, 0, -1, { all = true }) do
-        table.insert(values, eval.css_value(parser, source, call[value_idx][1]))
+      for _, call, _ in ctx:iter(eval_lua_query, node) do
+        table.insert(values, eval.css_value(ctx, call[value_idx][1]))
       end
 
       local code = table.concat(values, "\n")
@@ -147,7 +146,7 @@ eval.css_value = function(parser, source, node)
       local arguments_node = assert(node:child(1), "all call_expression have arguments")
       for _, arg in ipairs(arguments_node:named_children()) do
         assert(arg:type() == "string_value", "all arguments must be string_values")
-        table.insert(arguments, eval.css_value(parser, source, arg))
+        table.insert(arguments, eval.css_value(ctx, arg))
       end
 
       local body = table.concat(arguments, ";\n")
@@ -164,18 +163,23 @@ eval.css_value = function(parser, source, node)
 
       return function_ref
     else
+      -- Collect arguments for function
+      local arguments = {}
+      local arguments_node = assert(node:child(1), "all call_expression have arguments")
+      for _, arg in ipairs(arguments_node:named_children()) do
+        table.insert(arguments, eval.css_value(ctx, arg))
+      end
+
+      -- Process function name
       function_name = function_name:gsub("-", ".")
       local function_ref
       if css_functions[function_name] then
         function_ref = css_functions[function_name]
+
+        -- Give all CSS functions context as the first argument
+        table.insert(arguments, 1, ctx)
       else
         function_ref = loadstring("return " .. function_name)()
-      end
-
-      local arguments = {}
-      local arguments_node = assert(node:child(1), "all call_expression have arguments")
-      for _, arg in ipairs(arguments_node:named_children()) do
-        table.insert(arguments, eval.css_value(parser, source, arg))
       end
 
       return function_ref(unpack(arguments))
@@ -183,19 +187,19 @@ eval.css_value = function(parser, source, node)
   elseif ty == "grid_value" then
     local values = {}
     for _, child in ipairs(node:named_children()) do
-      table.insert(values, eval.css_value(parser, source, child))
+      table.insert(values, eval.css_value(ctx, child))
     end
 
     return values
   elseif ty == "selectors" then
     -- TODO: This seems questionable?
-    return get_text(node, source)
+    return get_text(ctx, node)
   elseif ty == "postcss_statement" then
     local child = assert(node:named_child(0), "must have a child")
-    local keyword = get_text(child, source)
+    local keyword = get_text(ctx, child)
     error(string.format("unknown postcss_statement: %s", keyword))
   else
-    error(string.format("Unknown css_value %s / %s", ty, source))
+    error(string.format("Unknown css_value %s / %s", ty, ctx.source))
   end
 end
 

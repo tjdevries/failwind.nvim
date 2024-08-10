@@ -79,13 +79,13 @@ import.read = function(spec)
     local block_idx = get_capture_idx(matching_tags_query.captures, "block")
     local ruleset_idx = get_capture_idx(matching_tags_query.captures, "ruleset")
     for _, match, _ in matching_tags_query:iter_matches(root, text, 0, -1, { all = true }) do
-      local tag_name = get_text(match[tag_idx][1], text)
+      local tag_name = get_text(text, match[tag_idx][1])
       local filtered = spec.filter(text, tag_name, match[ruleset_idx][1], match[block_idx][1])
       if filtered ~= nil then
         table.insert(result, filtered)
       end
       -- if tag_name == spec.filter then
-      --   table.insert(matching_nodes, get_text(, text))
+      --   table.insert(matching_nodes, get_text(text), )
       -- end
     end
 
@@ -125,7 +125,7 @@ local feature_query_strings = vim.treesitter.query.parse(
        (plain_value) @tag]) ]]
 )
 
-import._make_feature_filter = function(parser, source, feature_node)
+import._make_feature_filter = function(ctx, feature_node)
   local format_plugin_query_string = [[
 ((rule_set
   (selectors (tag_name) @_tag)
@@ -155,17 +155,17 @@ import._make_feature_filter = function(parser, source, feature_node)
   local string_idx = get_capture_idx(feature_query_strings.captures, "string")
   local tag_idx = get_capture_idx(feature_query_strings.captures, "tag")
   local feature_name_idx = get_capture_idx(feature_query_strings.captures, "feature_name")
-  for _, match, _ in feature_query_strings:iter_matches(feature_node, source, 0, -1, { all = true }) do
-    local feature_name = get_text(match[feature_name_idx][1], source)
+  for _, match, _ in ctx:iter(feature_query_strings, feature_node) do
+    local feature_name = get_text(ctx, match[feature_name_idx][1])
 
     if feature_name == "plugins" then
       if match[string_idx] then
-        local plugin_name = eval.css_value(parser, source, match[string_idx][1])
+        local plugin_name = eval.css_value(ctx, match[string_idx][1])
         local formatted_query = string.format(format_plugin_query_string, plugin_name)
         local query = vim.treesitter.query.parse("css", formatted_query)
         table.insert(plugin_queries, query)
       elseif match[tag_idx] then
-        local plugin_name = get_text(match[tag_idx][1], source)
+        local plugin_name = get_text(ctx, match[tag_idx][1])
         local formatted_query = string.format(format_plugin_query_string_tag, plugin_name)
         local query = vim.treesitter.query.parse("css", formatted_query)
         table.insert(plugin_queries, query)
@@ -189,7 +189,7 @@ import._make_feature_filter = function(parser, source, feature_node)
       for _, query in ipairs(plugin_queries) do
         local result_idx = get_capture_idx(query.captures, "result")
         for _, match in query:iter_matches(ruleset_node, matched_source, 0, -1, { all = true }) do
-          local result = get_text(match[result_idx][1], matched_source)
+          local result = get_text(matched_source, match[result_idx][1])
           table.insert(matches, string.format("\n/* start */\nplugins {\n%s\n}\n", result))
         end
       end
@@ -202,31 +202,29 @@ import._make_feature_filter = function(parser, source, feature_node)
 end
 
 --- Get the specs from a file
----@param parser vim.treesitter.LanguageTree
----@param source string
----@param node TSNode
+---@param ctx failwind.Context
 ---@return failwind.ImportSpec[]
-import.evaluate = function(parser, source, node)
+import.evaluate = function(ctx)
   local url_idx = get_capture_idx(import_query.captures, "url")
   local file_idx = get_capture_idx(import_query.captures, "file")
   local keyword_idx = get_capture_idx(import_query.captures, "keyword")
   local feature_idx = get_capture_idx(import_query.captures, "feature")
 
   local specs = {}
-  for _, match, _ in import_query:iter_matches(node, source, 0, -1, { all = true }) do
-    local url = eval.css_value(parser, source, match[url_idx][1]) --[[@as string]]
+  for _, match, _ in ctx:iter(import_query) do
+    local url = eval.css_value(ctx, match[url_idx][1]) --[[@as string]]
     local file = "init.css"
     if match[file_idx] then
-      file = eval.css_value(parser, source, match[file_idx][1]) --[[@as string]]
+      file = eval.css_value(ctx, match[file_idx][1]) --[[@as string]]
     end
 
     local filter
     local keyword_node = (match[keyword_idx] or {})[1]
     if keyword_node then
-      local keyword = get_text(keyword_node, source)
+      local keyword = get_text(ctx.source, keyword_node)
       filter = function(source, tagname, ruleset_node, block_node)
         if keyword == tagname then
-          return get_text(ruleset_node, source)
+          return get_text(source, ruleset_node)
         end
 
         return nil
@@ -235,7 +233,7 @@ import.evaluate = function(parser, source, node)
 
     local feature_node = (match[feature_idx] or {})[1]
     if feature_node then
-      filter = import._make_feature_filter(parser, source, feature_node)
+      filter = import._make_feature_filter(ctx, feature_node)
     end
 
     table.insert(specs, import.make_spec(url, file, filter))

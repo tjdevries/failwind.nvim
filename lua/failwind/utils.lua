@@ -9,8 +9,17 @@ M.get_capture_idx = function(captures, name)
   error(string.format("capture not found: %s // %s", name, vim.inspect(captures)))
 end
 
-M.get_text = function(node, source, opts)
-  local text = vim.treesitter.get_node_text(node, source, opts)
+--- Get text for a node
+---@param source string|number|failwind.Context
+---@param node TSNode
+---@return string
+M.get_text = function(source, node)
+  if type(source) == "table" then
+    source = source.source
+  end
+
+  ---@diagnostic disable-next-line: param-type-mismatch
+  local text = vim.treesitter.get_node_text(node, source)
   text = text:gsub("FAILWIND_UNICODE_OPENING_BRACE", "{")
 
   return text
