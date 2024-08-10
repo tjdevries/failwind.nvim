@@ -28,7 +28,7 @@ local import_query = vim.treesitter.query.parse(
           
          (string_value) @url]
         [(keyword_query) @keyword
-         (feature_query) @feature]?) ]]
+         (feature_query) @feature]?) @import ]]
 )
 
 --- Get the repo directory path
@@ -60,7 +60,7 @@ local matching_tags_query = vim.treesitter.query.parse(
   ]]
 )
 
----comment
+--- Read an import spec
 ---@param spec failwind.ImportSpec
 import.read = function(spec)
   if not import.get_repository(spec) then
@@ -70,17 +70,16 @@ import.read = function(spec)
   local file_path = vim.fs.joinpath(spec.dir, spec.file)
   local text = util.fix_stupid_treesitter_brace(vim.fn.readfile(file_path))
   if spec.filter then
-    local parser = vim.treesitter.get_string_parser(text, "css")
-    local root = parser:parse()[1]:root()
+    local spec_ctx = require("failwind.context").new(text)
 
     local result = {}
 
     local tag_idx = get_capture_idx(matching_tags_query.captures, "tag")
     local block_idx = get_capture_idx(matching_tags_query.captures, "block")
     local ruleset_idx = get_capture_idx(matching_tags_query.captures, "ruleset")
-    for _, match, _ in matching_tags_query:iter_matches(root, text, 0, -1, { all = true }) do
-      local tag_name = get_text(text, match[tag_idx][1])
-      local filtered = spec.filter(text, tag_name, match[ruleset_idx][1], match[block_idx][1])
+    for _, match, _ in spec_ctx:iter(matching_tags_query) do
+      local tag_name = get_text(spec_ctx, match[tag_idx][1])
+      local filtered = spec.filter(spec_ctx, tag_name, match[ruleset_idx][1], match[block_idx][1])
       if filtered ~= nil then
         table.insert(result, filtered)
       end
@@ -181,15 +180,13 @@ import._make_feature_filter = function(ctx, feature_node)
         (feature_name) ; [9, 40] - [9, 47]
         (grid_value ; [9, 49] - [11, 1]
           (string_value))) --]]
-  return function(matched_source, tagname, ruleset_node, block_node)
+  return function(matched_ctx, tagname, ruleset_node)
     if tagname == "plugins" then
-      matched_source = util.fix_stupid_treesitter_brace(matched_source)
-
       local matches = {}
       for _, query in ipairs(plugin_queries) do
         local result_idx = get_capture_idx(query.captures, "result")
-        for _, match in query:iter_matches(ruleset_node, matched_source, 0, -1, { all = true }) do
-          local result = get_text(matched_source, match[result_idx][1])
+        for _, match in matched_ctx:iter(query, ruleset_node) do
+          local result = get_text(matched_ctx, match[result_idx][1])
           table.insert(matches, string.format("\n/* start */\nplugins {\n%s\n}\n", result))
         end
       end
@@ -203,15 +200,17 @@ end
 
 --- Get the specs from a file
 ---@param ctx failwind.Context
----@return failwind.ImportSpec[]
+---@return TSNode
+---@return failwind.ImportSpec?
 import.evaluate = function(ctx)
   local url_idx = get_capture_idx(import_query.captures, "url")
   local file_idx = get_capture_idx(import_query.captures, "file")
   local keyword_idx = get_capture_idx(import_query.captures, "keyword")
   local feature_idx = get_capture_idx(import_query.captures, "feature")
+  local import_idx = get_capture_idx(import_query.captures, "import")
 
-  local specs = {}
   for _, match, _ in ctx:iter(import_query) do
+    local import_node = match[import_idx][1]
     local url = eval.css_value(ctx, match[url_idx][1]) --[[@as string]]
     local file = "init.css"
     if match[file_idx] then
@@ -221,10 +220,10 @@ import.evaluate = function(ctx)
     local filter
     local keyword_node = (match[keyword_idx] or {})[1]
     if keyword_node then
-      local keyword = get_text(ctx.source, keyword_node)
-      filter = function(source, tagname, ruleset_node, block_node)
+      local keyword = get_text(ctx, keyword_node)
+      filter = function(matched_ctx, tagname, ruleset_node)
         if keyword == tagname then
-          return get_text(source, ruleset_node)
+          return get_text(matched_ctx, ruleset_node)
         end
 
         return nil
@@ -236,10 +235,8 @@ import.evaluate = function(ctx)
       filter = import._make_feature_filter(ctx, feature_node)
     end
 
-    table.insert(specs, import.make_spec(url, file, filter))
+    return import_node, import.make_spec(url, file, filter)
   end
-
-  return specs
 end
 
 return import

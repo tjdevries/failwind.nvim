@@ -373,19 +373,20 @@ local evaluate_keymaps = function(ctx)
 end
 
 M.evaluate = function(filename)
-  local text = read_file(filename)
-  local ctx = require("failwind.context").new(text)
+  local ctx = require("failwind.context").new(read_file(filename))
 
-  local imports = require("failwind.import").evaluate(ctx)
-  for _, import in pairs(imports) do
-    local contents = require("failwind.import").read(import)
-    text = contents .. "\n" .. text
+  while true do
+    local node, import_spec = require("failwind.import").evaluate(ctx)
+    if not import_spec then
+      break
+    end
+
+    local content = require("failwind.import").read(import_spec)
+    content = string.format("/* Imported from: %s */\n%s\n", import_spec.name, content)
+    require("failwind.utils").replace_node_with_text(ctx, node, content)
   end
 
-  vim.fn.writefile(vim.split(text, "\n"), "/tmp/failwind.globals.css")
-
-  -- Update parser and root_node
-  ctx:update(text)
+  vim.fn.writefile(vim.split(ctx.source, "\n"), "/tmp/failwind.globals.css")
 
   -- Evaluate all global variables
   require("failwind.variables").globals(ctx)
@@ -393,7 +394,7 @@ M.evaluate = function(filename)
   for _, match in ctx:iter(options_query) do
     local name_node = match[2][1]
     local value_node = match[3][1]
-    local name = get_text(text, name_node)
+    local name = get_text(ctx, name_node)
     local value = eval.css_value(ctx, value_node)
     vim.o[name] = value
   end
@@ -405,10 +406,10 @@ M.evaluate = function(filename)
 
     local ftoptions = {}
     for _, match in ctx:iter(filetype_options_query) do
-      local filetype = get_text(text, match[filetype_idx][1])
+      local filetype = get_text(ctx, match[filetype_idx][1])
       local name_node = match[name_idx][1]
       local value_node = match[value_idx][1]
-      local name = get_text(text, name_node)
+      local name = get_text(ctx, name_node)
       local value = eval.css_value(ctx, value_node)
 
       if not ftoptions[filetype] then
@@ -444,7 +445,6 @@ M.evaluate = function(filename)
   deps.setup {}
   local plugin_spec = evaluate_plugin_spec(ctx)
   for _, plugin in pairs(plugin_spec) do
-    print("plugin", plugin.name, vim.inspect(plugin))
     for _, dep in pairs(plugin.depends) do
       deps.add(dep)
     end
@@ -456,7 +456,7 @@ M.evaluate = function(filename)
     for _, setup in pairs(plugin.setup) do
       local ok, module = pcall(require, setup.module)
       if not ok then
-        print("failed to load", setup.module)
+        vim.notify(string.format("[failwind] failed to load: %s", setup.module))
       else
         module.setup(setup.opts)
       end

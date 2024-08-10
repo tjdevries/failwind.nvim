@@ -3,6 +3,8 @@ local failwind_hl = require "failwind.highlight"
 
 local context = require "failwind.context"
 
+local util = require "failwind.utils"
+
 ---@diagnostic disable-next-line: undefined-field
 local eq = assert.are.same
 
@@ -196,6 +198,33 @@ highlight {
       eq({
         ["@keyword"] = { fg = "#FF0000" },
       }, highlights)
+    end)
+  end)
+
+  describe("util", function()
+    describe("replace_node_with_text", function()
+      it("should work on one line", function()
+        local text = [[ @import hello; ]]
+        local ctx = context.new(text)
+        local node = assert(ctx.root:named_child(0):named_child(0), "should get hello")
+
+        util.replace_node_with_text(ctx, node, "INCREDIBLE")
+        eq([[ @import INCREDIBLE; ]], ctx.source)
+      end)
+
+      it("should work on multiple lines line", function()
+        local text = [[@import url("tjdevries/kickstart.css") (plugins:
+  "rebelot/kanagawa.nvim"
+  "stevearc/oil.nvim"
+  lsp
+); ]]
+
+        local ctx = context.new(text)
+        local node = assert(ctx.root:named_child(0), "should get the import statement")
+
+        util.replace_node_with_text(ctx, node, ":root { something: true }")
+        eq([[:root { something: true }]], vim.trim(ctx.source))
+      end)
     end)
   end)
 end)

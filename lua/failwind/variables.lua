@@ -36,7 +36,7 @@ vars.globals = function(ctx)
   local name_idx = get_capture_idx(root_query.captures, "name")
   local value_idx = get_capture_idx(root_query.captures, "value")
   for _, match, _ in ctx:iter(root_query) do
-    local name = get_text(ctx.source, match[name_idx][1])
+    local name = get_text(ctx, match[name_idx][1])
     local value = eval.css_value(ctx, match[value_idx][1])
     root[name] = value
   end
