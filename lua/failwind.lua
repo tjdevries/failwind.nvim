@@ -19,31 +19,6 @@ local get_capture_idx = require("failwind.utils").get_capture_idx
 local get_text = require("failwind.utils").get_text
 local read_file = require("failwind.utils").read_file
 
-local evaluate_block_as_table
-
-local evaluate_call_statement = function(ctx, child)
-  local call_node = assert(child:named_child(1), "must have call")
-  local ruleset_node = assert(child:next_sibling(), "must have ruleset")
-  local node_text = get_text(ctx, call_node) .. get_text(ctx, ruleset_node)
-  local brace = string.find(node_text, "{", 0, true)
-  node_text = vim.trim(string.sub(node_text, 1, brace - 1))
-
-  -- local function_node = assert(node:named_child(1), "must have a function_name")
-  local function_text = string.format("return function(...) return %s(...) end", node_text)
-  local function_ref = assert(loadstring(function_text, "must load function"))()
-
-  return function()
-    local arguments
-    for _, rule_child in ipairs(ruleset_node:named_children()) do
-      if rule_child:type() == "block" then
-        arguments = evaluate_block_as_table(ctx, rule_child)
-      end
-    end
-
-    return function_ref(arguments)
-  end
-end
-
 local M = {}
 
 local options_query = vim.treesitter.query.parse(
@@ -69,29 +44,6 @@ local filetype_options_query = vim.treesitter.query.parse(
        (#eq? @tag "options"))  ]]
 )
 
-local keymaps_query = vim.treesitter.query.parse(
-  "css",
-  [[
-((rule_set
-   (selectors
-    (tag_name) @_tag)
-   (block
-     (rule_set
-       (selectors (tag_name) @mode)
-       (block
-        (rule_set
-         (selectors
-          (pseudo_class_selector
-            (class_name) @_selector
-            (arguments (string_value) @key)))
-         (block) @keymap
-
-          )))))
- (#eq? @_tag "keymaps")
- (#eq? @_selector "key")) ]]
-)
-
-local keymaps_value_query = vim.treesitter.query.parse("css", [[ (declaration (property_name) @name (_) @value) ]])
 local plugin_spec_query = vim.treesitter.query.parse(
   "css",
   [[ ((rule_set
@@ -173,52 +125,6 @@ end
 ---@field config function[]
 ---@field is_repo boolean
 
-evaluate_block_as_table = function(ctx, module_config_node)
-  local result = {}
-
-  local count = module_config_node:named_child_count()
-  for i = 0, count - 1 do
-    local child = assert(module_config_node:named_child(i))
-    local child_type = child:type()
-
-    if child_type == "declaration" then
-      local declaration_count = child:named_child_count()
-      if declaration_count == 2 then
-        local property_name = eval.css_value(ctx, child:named_child(0)) --[[@as string]]
-        local property_value = eval.css_value(ctx, child:named_child(1))
-        result[property_name] = property_value
-      else
-        error "Invalid declaration"
-      end
-    elseif child_type == "rule_set" then
-      local property_name = eval.css_value(ctx, child:named_child(0)) --[[@as string]]
-      local property_value = evaluate_block_as_table(ctx, child:named_child(1))
-      result[property_name] = property_value
-    elseif child_type == "postcss_statement" then
-      local keyword = get_text(ctx, child:named_child(0))
-      if keyword == "@-" then
-        local child_count = child:named_child_count()
-        if child_count == 3 then
-          local property_name = eval.css_value(ctx, child:named_child(1)) --[[@as string]]
-          local property_value = eval.css_value(ctx, child:named_child(2))
-          result[property_name] = property_value
-        elseif child_count == 2 then
-          local property_value = eval.css_value(ctx, child:named_child(1))
-          table.insert(result, property_value)
-        else
-          error(string.format("Unknown postcss_statement %s: %d", vim.inspect(child), child_count))
-        end
-      end
-    elseif child_type == "comment" then
-      -- pass
-    else
-      error(string.format("Unknown block type %s: %s\n%s", child_type, vim.inspect(child), child:range()))
-    end
-  end
-
-  return result
-end
-
 ---@param ctx failwind.Context
 ---@param plugin_config_node any
 ---@return failwind.PluginSpec
@@ -235,7 +141,7 @@ local evaluate_plugin_setup = function(ctx, plugin_config_node)
   local module_config_idx = get_capture_idx(plugin_setup_query.captures, "module_config")
   for _, plugin_setup_node in ctx:iter(plugin_setup_query, plugin_config_node) do
     local module_name = eval.css_value(ctx, plugin_setup_node[module_name_idx][1])
-    local module_config = evaluate_block_as_table(ctx, plugin_setup_node[module_config_idx][1])
+    local module_config = eval.block_as_table(ctx, plugin_setup_node[module_config_idx][1])
     table.insert(custom_setups, { module = module_name, opts = module_config })
   end
   vim.list_extend(setup, custom_setups)
@@ -253,7 +159,7 @@ local evaluate_plugin_config_items = function(ctx, plugin_config_node)
     local config_node = plugin_setup_node[module_config_idx][1]
 
     for _, child in ipairs(config_node:named_children()) do
-      local f = evaluate_call_statement(ctx, child)
+      local f = eval.call_statement(ctx, child)
       table.insert(custom_setups, f)
     end
   end
@@ -308,68 +214,6 @@ local evaluate_plugin_spec = function(ctx)
   end
 
   return plugins
-end
-
-local evaluate_keymaps = function(ctx)
-  local mode_idx = get_capture_idx(keymaps_query.captures, "mode")
-  local key_idx = get_capture_idx(keymaps_query.captures, "key")
-  local keymap_idx = get_capture_idx(keymaps_query.captures, "keymap")
-
-  local name_idx = get_capture_idx(keymaps_value_query.captures, "name")
-  local value_idx = get_capture_idx(keymaps_value_query.captures, "value")
-
-  local keymaps = {}
-  for _, match, _ in ctx:iter(keymaps_query) do
-    local mode = get_text(ctx, match[mode_idx][1])
-    local key = eval.css_value(ctx, match[key_idx][1])
-    local keymap = match[keymap_idx][1]
-
-    local action = nil
-    local opts = {}
-    for _, declaration in ctx:iter(keymaps_value_query, keymap) do
-      local name = eval.css_value(ctx, declaration[name_idx][1])
-      local value = declaration[value_idx][1]
-
-      if name == "action" then
-        action = eval.css_value(ctx, value)
-      elseif name == "command" then
-        local command = eval.css_value(ctx, value)
-        assert(type(command) == "string", "must be string")
-        action = string.format("<cmd>%s<CR>", command)
-      elseif name == "desc" then
-        opts.desc = eval.css_value(ctx, value)
-      end
-    end
-
-    for _, child in ipairs(keymap:named_children()) do
-      if child:type() == "postcss_statement" then
-        local keyword = get_text(ctx, assert(child:named_child(0)))
-        if keyword == "@call" then
-          action = evaluate_call_statement(ctx, child)
-        end
-      end
-    end
-
-    if action then
-      if mode == "normal" then
-        mode = "n"
-      elseif mode == "insert" then
-        mode = "i"
-      elseif mode == "terminal" then
-        mode = "t"
-      end
-
-      if not keymaps[mode] then
-        keymaps[mode] = {}
-      end
-
-      if key then
-        keymaps[mode][key] = { action = action, opts = opts }
-      end
-    end
-  end
-
-  return keymaps
 end
 
 M.evaluate = function(filename)
@@ -435,7 +279,7 @@ M.evaluate = function(filename)
     })
   end
 
-  local keymaps = evaluate_keymaps(ctx)
+  local keymaps = require("failwind.keymaps").evaluate(ctx)
   for mode, keymap in pairs(keymaps or {}) do
     for key, settings in pairs(keymap) do
       vim.keymap.set(mode, key, settings.action, settings.opts)
@@ -473,9 +317,14 @@ M.evaluate = function(filename)
   for name, highlight in pairs(highlights) do
     vim.api.nvim_set_hl(0, name, highlight)
   end
+
+  local autocmds = require("failwind.autocmds").evaluate(ctx)
+  for _, autocmd in ipairs(autocmds) do
+    vim.api.nvim_create_autocmd(autocmd.event, autocmd.opts)
+  end
 end
 
 M._evaluate_plugin_spec = evaluate_plugin_spec
-M._evaluate_keymaps = evaluate_keymaps
+M._evaluate_keymaps = require("failwind.keymaps").evaluate
 
 return M

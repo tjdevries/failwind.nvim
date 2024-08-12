@@ -203,4 +203,84 @@ eval.css_value = function(ctx, node)
   end
 end
 
+eval.call_statement = function(ctx, child)
+  local call_node = assert(child:named_child(1), "must have call")
+  local ruleset_node = assert(child:next_sibling(), "must have ruleset")
+  local node_text = get_text(ctx, call_node) .. get_text(ctx, ruleset_node)
+  local brace = string.find(node_text, "{", 0, true)
+  node_text = vim.trim(string.sub(node_text, 1, brace - 1))
+
+  -- local function_node = assert(node:named_child(1), "must have a function_name")
+  local function_text = string.format("return function(...) return %s(...) end", node_text)
+  local function_ref = assert(loadstring(function_text, "must load function"))()
+
+  return function()
+    local arguments
+    for _, rule_child in ipairs(ruleset_node:named_children()) do
+      if rule_child:type() == "block" then
+        arguments = eval.block_as_table(ctx, rule_child)
+      end
+    end
+
+    return function_ref(arguments)
+  end
+end
+
+eval.block_as_table = function(ctx, module_config_node)
+  local result = {}
+
+  local count = module_config_node:named_child_count()
+  for i = 0, count - 1 do
+    local child = assert(module_config_node:named_child(i))
+    local child_type = child:type()
+
+    if child_type == "declaration" then
+      local declaration_count = child:named_child_count()
+      if declaration_count == 2 then
+        local property_name = eval.css_value(ctx, child:named_child(0)) --[[@as string]]
+        local property_value = eval.css_value(ctx, child:named_child(1))
+        result[property_name] = property_value
+      else
+        error "Invalid declaration"
+      end
+    elseif child_type == "rule_set" then
+      local property_name = eval.css_value(ctx, child:named_child(0)) --[[@as string]]
+      local property_value = eval.block_as_table(ctx, child:named_child(1))
+      result[property_name] = property_value
+    elseif child_type == "postcss_statement" then
+      local keyword = get_text(ctx, child:named_child(0))
+      if keyword == "@-" then
+        local child_count = child:named_child_count()
+        if child_count == 3 then
+          local property_name = eval.css_value(ctx, child:named_child(1)) --[[@as string]]
+          local property_value = eval.css_value(ctx, child:named_child(2))
+          result[property_name] = property_value
+        elseif child_count == 2 then
+          local property_value = eval.css_value(ctx, child:named_child(1))
+          table.insert(result, property_value)
+        else
+          error(string.format("Unknown postcss_statement %s: %d", vim.inspect(child), child_count))
+        end
+      elseif keyword == "@callback" then
+        local child_count = child:named_child_count()
+        if child_count == 2 then
+          local property_name = eval.css_value(ctx, child:named_child(1)) --[[@as string]]
+          local cb = loadstring(string.format("%s()", property_name))
+          result.callback = cb
+        else
+          error "Unknown @callback count"
+        end
+      else
+        error "ASASF"
+      end
+    elseif child_type == "comment" then
+      -- pass
+    else
+      error(string.format("Unknown block type %s: %s\n%s", child_type, vim.inspect(child), child:range()))
+    end
+  end
+
+  return result
+end
+
 return eval

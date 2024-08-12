@@ -20,28 +20,33 @@ local root_query = vim.treesitter.query.parse(
 )
 
 --- Evaluate a variable
----@param ctx failwind.Context
+---@param _ failwind.Context
 ---@param name string
 ---@return any
-vars.eval = function(ctx, name)
+vars.eval = function(_, name)
+  if vim.startswith(name, "--") then
+    name = string.sub(name, 3)
+  end
+
   -- TODO: Handle nested scopes
-  return ctx.scopes[1][name]
+  -- return ctx.scopes[1][name]
+  return vim.g[name]
 end
 
 --- Update context with the root variables
 ---@param ctx failwind.Context
 vars.globals = function(ctx)
-  local root = {}
-
   local name_idx = get_capture_idx(root_query.captures, "name")
   local value_idx = get_capture_idx(root_query.captures, "value")
   for _, match, _ in ctx:iter(root_query) do
     local name = get_text(ctx, match[name_idx][1])
-    local value = eval.css_value(ctx, match[value_idx][1])
-    root[name] = value
-  end
+    if vim.startswith(name, "--") then
+      name = string.sub(name, 3)
+    end
 
-  table.insert(ctx.scopes, root)
+    local value = eval.css_value(ctx, match[value_idx][1])
+    vim.g[name] = value
+  end
 end
 
 --[[

@@ -227,4 +227,91 @@ highlight {
       end)
     end)
   end)
+
+  describe("autocds", function()
+    it("should match bare tag selector", function()
+      local text = [[
+autocmds {
+  TextYankPost {
+    desc: 'Highlight yanked text';
+    callback: lua(vim.highlight.on_yank);
+  }
+}
+      ]]
+
+      local ctx = context.new(text)
+      local autocmds = require("failwind.autocmds").evaluate(ctx)
+      eq(1, #autocmds)
+
+      local au = autocmds[1]
+      eq("TextYankPost", au.event)
+      eq("function", type(au.opts.callback))
+      eq("Highlight yanked text", au.opts.desc)
+      eq(nil, au.opts.pattern)
+    end)
+
+    it("should match with selection", function()
+      local text = [[
+autocmds {
+  TextYankPost:is("ts", "js") {
+    desc: 'Highlight yanked text';
+    callback: lua(vim.highlight.on_yank);
+  }
+}
+      ]]
+
+      local ctx = context.new(text)
+      local autocmds = require("failwind.autocmds").evaluate(ctx)
+      eq(1, #autocmds)
+
+      local au = autocmds[1]
+      eq("TextYankPost", au.event)
+      eq("function", type(au.opts.callback))
+      eq("Highlight yanked text", au.opts.desc)
+      eq({ "ts", "js" }, au.opts.pattern)
+    end)
+
+    it("should match with other selection", function()
+      local text = [[
+autocmds {
+  TextYankPost :is("ts", "js") {
+    desc: 'Highlight yanked text';
+    callback: lua(vim.highlight.on_yank);
+  }
+}
+      ]]
+
+      local ctx = context.new(text)
+      local autocmds = require("failwind.autocmds").evaluate(ctx)
+      eq(1, #autocmds)
+
+      local au = autocmds[1]
+      eq("TextYankPost", au.event)
+      eq("function", type(au.opts.callback))
+      eq("Highlight yanked text", au.opts.desc)
+      eq({ "ts", "js" }, au.opts.pattern)
+    end)
+
+    it("should allow @call", function()
+      local text = [[
+autocmds {
+  TextYankPost {
+    desc: 'Highlight yanked text';
+    @callback vim.highlight.on_yank;
+  }
+}
+      ]]
+
+      local ctx = context.new(text)
+      local autocmds = require("failwind.autocmds").evaluate(ctx)
+      eq(1, #autocmds)
+
+      local au = autocmds[1]
+      eq(nil, au)
+      eq("TextYankPost", au.event)
+      eq("function", type(au.opts.callback))
+      eq("Highlight yanked text", au.opts.desc)
+      eq(nil, au.opts.pattern)
+    end)
+  end)
 end)
