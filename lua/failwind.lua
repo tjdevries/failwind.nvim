@@ -151,7 +151,9 @@ end
 
 local evaluate_plugin_config_items = function(ctx, plugin_config_node)
   local setup = {}
-  vim.list_extend(setup, fold_declaration(ctx, plugin_config_node, "config"))
+  table.insert(setup, function()
+    fold_declaration(ctx, plugin_config_node, "config")
+  end)
 
   local custom_setups = {}
   local module_config_idx = get_capture_idx(config_setup_query.captures, "module_config")
@@ -241,7 +243,7 @@ M.evaluate = function(filename)
     local value_node = match[3][1]
     local name = get_text(ctx, name_node)
     local value = eval.css_value(ctx, value_node)
-    vim.o[name] = value
+    vim.opt[name] = value
   end
 
   do
