@@ -228,7 +228,7 @@ highlight {
     end)
   end)
 
-  describe("autocds", function()
+  describe("autocmds", function()
     it("should match bare tag selector", function()
       local text = [[
 autocmds {
